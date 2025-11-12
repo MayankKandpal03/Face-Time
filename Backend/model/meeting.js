@@ -15,11 +15,15 @@ const meetingSchema = new mongoose.Schema({
         ref:'User'
     }],
     scheduleAt: Date,
-    schedule: {                  
+    Schedule: {                  
         rrule: String,            
         endDate: Date
     },
     isLive: {
+        type: Boolean,
+        default: false
+    },
+    isScheduled: {
         type: Boolean,
         default: false
     },
