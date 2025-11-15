@@ -1,76 +1,82 @@
-// Importing Models
-import Meeting from '../model/meeting.js'
-import Participant from '../model/participant.js'
+// Imports
+import Meeting from "../models/meeting.js";
+import Participant from "../models/participant.js";
+import { asyncWrap } from "../utils/errorHandler.js"; 
 
 // Logic
 
-// Create meeting (Schedule or start now)
-export const createMeeting = async (req, res)=>{
-    try{
-        // Extracting data for creating meeting
-        const {title, hostId, scheduleAt, isScheduled} = req.body;
+// Create meeting
+export const createMeeting = asyncWrap(async (req, res) => {
+  // Extract data from url
+  const { title, hostId, scheduleAt, isScheduled } = req.body;
 
-        // Generating random Room Code
-        let roomCode = Math.random().toString(36).substring(10,16);
+  // Generate unique room code (6 chars)
+  const roomCode = Math.random().toString(36).slice(2, 8).toUpperCase();
 
-        // Schedule timing (If schdeule it will store the schedule time, else the current time)
-        // Condition? Value_true: value_false
-        const startTime = isScheduled ? new Date(scheduleAt) : new Date()
+  // Check if the meeting is schedule or not
+  const startTime = isScheduled ? new Date(scheduleAt) : new Date();
 
-        // Creating a new meeting document 
-        const meeting = await Meeting.create({
-            title,                 // It is short form for title : "value"
-            hostId,
-            roomCode,
-            scheduleAt: startTime,
-            isScheduled,
-            isLive:!isScheduled
-        })
+  // Create meeting Document
+  const meeting = await Meeting.create({
+    title,
+    hostId,
+    roomCode,
+    scheduleAt: startTime,
+    isScheduled,
+    isLive: !isScheduled,
+  });
 
-        // Add host as a participant
-        await Participant.create({
-            meetingId: meeting._id, // Storing the id of the meeting created.
-            userId: hostId,
-            role : "host"
-        })
-        // Pushing host in the meeting document inside participantsId field
-        await Meeting.findByIdAndUpdate(meeting._id,{$addToSet:{participantsId: hostId}})
+  // Add host to Participants collection
+  await Participant.create({
+    meetingId: meeting._id,
+    userId: hostId,
+    role: "host",
+  });
 
-        // Send res status
-        res.status(201).json({
-            success: true,
-            message: isScheduled? "Meeting scheduled sucessfully": "Meeting Started Successfully!",
-            meeting
-        })
-    }
-    catch(error){
-        res.status(500).json({
-            success: false,
-            message: "Failed to create Meeting",
-            error: error.message,
-        })
-    }
-}
+  // Add host as participant in Meetings collection
+  await Meeting.findByIdAndUpdate(meeting._id, { $addToSet: { participantsId: hostId } });
 
-// Fetch all meeting for a host
-export const getMeeting = async (req,res) =>{
-    try{
-        // Extract host Id
-        const {hostId} = req.params
-        
-        // Query to fetch meeting using host id
-        const meetings = await Meeting.find({hostId}).sort({createdAt: -1})
+  res.status(201).json({
+    success: true,
+    message: isScheduled ? "Meeting scheduled successfully" : "Meeting started successfully",
+    meeting,
+  });
+});
 
-        res.status(200).json({
-            success: true,
-            count: meetings.length,
-            meetings
-        })
-    }
-    catch(error){
-        res.status(500).json({
-            success: false,
-            message: "Failed to Fetch Meeting Data"
-        }
-    )}
-}
+
+// Join Meeting
+export const joinMeeting = asyncWrap(async (req, res) => {
+  // Extract data from url
+  const { meetingId, userId } = req.body;
+
+  // Check if the user already exist
+  const existing = await Participant.findOne({ meetingId, userId });
+  if (existing) {
+    return res.status(400).json({ message: "Already joined" });
+  }
+
+  // Add user to Participants collection and add uesrId to meeting collections
+  const participant = await Participant.create({ meetingId, userId });
+  await Meeting.findByIdAndUpdate(meetingId, { $addToSet: { participantsId: userId } });
+
+  res.status(200).json({ message: "Joined meeting", participant });
+});
+
+
+// End meeting
+export const endMeeting = asyncWrap(async (req, res) => {
+  // Extract data from ur
+  const { meetingId } = req.body;
+
+  // Change is live field
+  await Meeting.findByIdAndUpdate(meetingId, { isLive: false });
+  res.status(200).json({ message: "Meeting ended" });
+});
+
+
+// Get all meeting
+export const getMeeting = asyncWrap(async (req, res) => {
+  const { hostId } = req.params;
+  const meetings = await Meeting.find({ hostId }).sort({ createdAt: -1 });
+  res.status(200).json({ success: true, count: meetings.length, meetings });
+});
