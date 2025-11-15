@@ -68,7 +68,7 @@ export const endMeeting = asyncWrap(async (req, res) => {
   // Extract data from ur
   const { meetingId } = req.body;
 
-  // Change is live field
+  // Change isLive field
   await Meeting.findByIdAndUpdate(meetingId, { isLive: false });
   res.status(200).json({ message: "Meeting ended" });
 });
