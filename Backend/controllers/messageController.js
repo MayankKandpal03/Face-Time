@@ -1,6 +1,6 @@
 // Imports
-import Message from "../models/message.js";
-import { asyncWrap } from "../utils/asyncWrap.js";
+import Message from "../model/message.js";
+import { asyncWrap } from "../utils/errorHandler.js";
 
 // Send message
 export const sendMessage = asyncWrap(async (req, res) => {

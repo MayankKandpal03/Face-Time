@@ -18,10 +18,14 @@ import participantRoutes from "./routes/participantRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 
+
 import { socketHandler } from "./socket/socket.js";       // new: signalling + auth
 
 dotenv.config();
-
+if (!process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET missing. Add JWT_SECRET to your .env (do not commit it).");
+  process.exit(1);
+}
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -50,7 +54,7 @@ app.use("/api/message", messageRoutes);
 app.use("/api/schedule", scheduleRoutes);
 
 // 404 handler
-app.all("*", (req, res, next) => {
+app.use((req, res, next) => {
   next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
 });
 

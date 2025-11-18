@@ -1,8 +1,59 @@
 import { motion } from "framer-motion";
 import { useTheme } from "../ThemeContext";
+import { useState } from "react";
+import { toast } from "react-toastify";
+import { useNavigate } from "react-router-dom";
 
 export default function Login() {
-    const { theme } = useTheme();
+  const { theme } = useTheme();
+  const navigate = useNavigate();
+  const [isRegisterMode, setIsRegisterMode]=useState(false);
+  const [formData, setFormData] =useState({
+   name:"",
+   email:"",
+   password:""
+
+  });
+  const handleChange = (e)=>{
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+  };
+  const handleSubmit =async ()=>{
+    try{
+      const url = isRegisterMode
+      ? "http://localhost:5000/api/user/register"
+      : "http://localhost:5000/api/user/login";
+      
+      const res = await fetch(url, {
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+
+      },
+      body:JSON.stringify(isRegisterMode? formData: {email:formData.email, password:formData.password})
+      
+      });
+      const data = await res.json();
+
+      if (!res.ok){
+        toast.error("Login Failed!");
+        return;
+        
+      }
+      localStorage.setItem("token", data.token);
+
+      toast.success(isRegisterMode?"User Registered":"Logged In");
+      navigate("/");
+    }
+    catch(err){
+      toast.error("Something went wrong");
+      console.log(err);
+      
+    }
+    
+  };
   const container = {
     hidden: { opacity: 0 },
     show: {
@@ -15,6 +66,7 @@ export default function Login() {
     hidden: { opacity: 0, y: 20 },
     show: { opacity: 1, y: 0 }
   };
+
 
   return (
     <motion.div
@@ -57,7 +109,7 @@ export default function Login() {
             variants={item}
             className="text-3xl font-bold text-center text-gray-800 dark:text-white"
           >
-            Login
+            {isRegisterMode?"Register":"Login"}
           </motion.h1>
 
           {/* Name Field */}
@@ -67,6 +119,9 @@ export default function Login() {
               whileFocus={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 200 }}
               type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
               placeholder="Enter your name"
               className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-400 outline-none"
             />
@@ -79,6 +134,9 @@ export default function Login() {
               whileFocus={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 200 }}
               type="email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
               placeholder="Enter your email"
               className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-400 outline-none"
             />
@@ -91,20 +149,31 @@ export default function Login() {
               whileFocus={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 200 }}
               type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
               placeholder="Enter your password"
               className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-400 outline-none"
             />
           </motion.div>
+          <motion.div 
+          onClick={() => setIsRegisterMode(!isRegisterMode)}
 
+          className="text-center mt-3 text-blue-600">
+            {isRegisterMode? "Already have an account? Login" :"Don't have an account? Register"}
+            
+          </motion.div>
           {/* Login Button */}
           <motion.button
             variants={item}
             whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.99}}
             transition={{ type: "spring", stiffness: 200 }}
+            onClick={handleSubmit}
+            
             className="w-full py-3 bg-indigo-600 text-white rounded-lg font-semibold shadow-md hover:bg-indigo-700 cursor-pointer"
           >
-            Login
+           {isRegisterMode?"Register": "Login"}
           </motion.button>
         </motion.div>
       </motion.div>

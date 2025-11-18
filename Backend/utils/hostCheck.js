@@ -1,4 +1,4 @@
-import Meeting from "../models/meeting.js";
+import Meeting from "../model/meeting.js";
 
 export const hostCheck = async (socket, meetingId) => {
   const meeting = await Meeting.findById(meetingId);

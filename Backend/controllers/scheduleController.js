@@ -1,5 +1,5 @@
 // Imports
-import Schedule from "../models/schedule.js";
+import Schedule from "../model/schedule.js";
 import { asyncWrap } from "../utils/errorHandler.js";
 
 // Create Schedule

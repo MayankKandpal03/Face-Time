@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { motion } from "framer-motion";
@@ -20,9 +20,10 @@ const hours = now.getHours();
 const minutes = now.getMinutes();
 
 export default function Home() {
-  const navigate = useNavigate();
+  
   const [roomCode, setRoomCode] = useState("");
   const [userName, setUserName] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const { theme, toggleTheme } = useTheme();
 
   const createRoom = () => {
@@ -30,8 +31,8 @@ export default function Home() {
       toast.warning("Please enter your name before starting a meeting!");
       return;
     }
-    const roomId = uuidv4();
-    navigate(`/room/${roomId}`, { state: { userName } });
+    const meetingId = uuidv4();
+    navigate(`/room/${meetingId}`, { state: { userName } });
   };
 
   const joinRoom = (e) => {
@@ -42,9 +43,38 @@ export default function Home() {
       });
       return;
     }
-    navigate(`/room/${roomCode.trim()}`, { state: { userName } });
+    
+    navigate(`/join/${roomCode.trim()}`, { state: { userName } });
   };
+  useEffect(()=>{
+    const token = localStorage.getItem("token");
+    if(!token) return;
 
+    fetch("http://localhost:5000/api/user/profile",{
+      method:"GET",
+      headers:{ "Authorization":`Bearer ${token}` }
+    
+    })   .then(async (res) => {
+      if (!res.ok) {
+        // token invalid/expired — clean up and remain logged out
+        localStorage.removeItem("token");
+        setIsLoggedIn(false);
+        setUserName("");
+        return;
+      }
+      const data = await res.json();
+      if (data.user && data.user.name) {
+        setUserName(data.user.name);
+        setIsLoggedIn(true);
+      }
+    })
+    .catch((err) => {
+      console.error("Profile fetch error:", err);
+      localStorage.removeItem("token");
+      setIsLoggedIn(false);
+      setUserName("");
+    });
+  }, [])
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -75,7 +105,8 @@ export default function Home() {
             </div>
 
             <div className="flex justify-end gap-2 py-6 w-full">
-              <div className="text-xl dark:text-white"><Link to="/login"> Sign In </Link></div>
+              <div className="text-xl dark:text-white"><Link to="/user/login"> Sign In </Link></div>
+              <div className="text-xl dark:text-white"><Link to="/meeting"> Meeting </Link></div>
               <div className="mr-[2%] text-xl text-black dark:text-white">{hours}:{minutes} {day},{date}, {year}</div>
               <div className="mr-[2%]"> <IoSettings className="text-black cursor-pointer text-2xl dark:text-white" />  </div>
             </div>
@@ -133,7 +164,9 @@ export default function Home() {
               <motion.div
                 whileHover={{ scale: 1.05 }}
                 className="text-blue-600 cursor-pointer text-center"
+                
               >
+                
                 Create a Room
               </motion.div>
             </motion.div>
@@ -172,8 +205,9 @@ export default function Home() {
                   <motion.input
                     whileFocus={{ scale: 1.02 }}
                     type="text"
-                    placeholder="Enter your name"
-                    value={userName}
+                    placeholder={!isLoggedIn?"Enter your name":""}
+                    value={isLoggedIn?`Hi , ${userName}`:userName}
+                    readOnly={isLoggedIn}
                     onChange={(e) => setUserName(e.target.value)}
                     className="w-full md:w-3/4 px-4 py-2 mb-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                   />

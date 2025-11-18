@@ -1,7 +1,7 @@
 // socket/socket.js
 import jwt from "jsonwebtoken";
-import Meeting from "../models/meeting.js";
-import Participant from "../models/participant.js";
+import Meeting from "../model/meeting.js";
+import Participant from "../model/participant.js";
 import { hostCheck } from "../utils/hostCheck.js";
 
 /**
