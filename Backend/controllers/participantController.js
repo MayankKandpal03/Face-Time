@@ -1,5 +1,5 @@
 // Imports
-import Participant from "../models/participant.js";
+import Participant from "../model/participant.js";
 import { asyncWrap } from "../utils/errorHandler.js";
 
 // Get participants for a meeting (populates user name, email and role)

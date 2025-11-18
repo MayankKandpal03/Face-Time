@@ -1,6 +1,6 @@
 // Imports
-import Meeting from "../models/meeting.js";
-import Participant from "../models/participant.js";
+import Meeting from "../model/meeting.js";
+import Participant from "../model/participant.js";
 import { asyncWrap } from "../utils/errorHandler.js"; 
 
 // Logic

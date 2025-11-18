@@ -1,6 +1,6 @@
 // Import
 import express from "express";
-import { protect } from "../middleware/authMiddleware.js";
+import { protect } from "../middlewares/authMiddleware.js";
 import {
   createMeeting,
   joinMeeting,

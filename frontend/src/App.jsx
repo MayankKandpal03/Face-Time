@@ -1,7 +1,7 @@
 import { BrowserRouter , Router, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import { ThemeProvider, useTheme } from "./ThemeContext";
-import Test from "./pages/Test";
+import Meeting from "./pages/Meeting";
 import Login from "./pages/Login";
 import "./index.css";
 import { Slide, ToastContainer } from "react-toastify";
@@ -29,8 +29,10 @@ function AppContent() {
 
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/test" element={<Test />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/test" element={<Meeting />} />
+        <Route path="/user/login" element={<Login />} />
+        <Route path="/meeting" element={<Meeting />} />
+        
       </Routes>
     </BrowserRouter>
   );
