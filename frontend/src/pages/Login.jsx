@@ -14,46 +14,58 @@ export default function Login() {
    password:""
 
   });
-  const handleChange = (e)=>{
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-  };
-  const handleSubmit =async ()=>{
-    try{
-      const url = isRegisterMode
+  function handleChange(e) {
+  const { name, value } = e.target;
+  setFormData(prev => ({ ...prev, [name]: value }));
+}
+const handleSubmit = async () => {
+  try {
+    // client-side validation
+    if (isRegisterMode) {
+      if (!formData.name?.trim() || !formData.email?.trim() || !formData.password?.trim()) {
+        toast.warning("Please fill name, email and password to register.");
+        return;
+      }
+    } else {
+      if (!formData.email?.trim() || !formData.password?.trim()) {
+        toast.warning("Please enter email and password to login.");
+        return;
+      }
+    }
+
+    const url = isRegisterMode
       ? "http://localhost:5000/api/user/register"
       : "http://localhost:5000/api/user/login";
-      
-      const res = await fetch(url, {
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json",
 
-      },
-      body:JSON.stringify(isRegisterMode? formData: {email:formData.email, password:formData.password})
-      
-      });
-      const data = await res.json();
+    const payload = isRegisterMode ? formData : { email: formData.email.trim(), password: formData.password };
 
-      if (!res.ok){
-        toast.error("Login Failed!");
-        return;
-        
-      }
-      localStorage.setItem("token", data.token);
+    console.log("Auth payload ->", payload);
 
-      toast.success(isRegisterMode?"User Registered":"Logged In");
-      navigate("/");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const msg = data?.message || (isRegisterMode ? "Register failed" : "Login failed");
+      toast.error(msg);
+      console.error("Auth failure", res.status, data);
+      return;
     }
-    catch(err){
-      toast.error("Something went wrong");
-      console.log(err);
-      
-    }
-    
-  };
+
+    // Save token and redirect
+    localStorage.setItem("token", data.token);
+    toast.success(isRegisterMode ? "Registered" : "Logged in");
+    navigate("/");
+  } catch (err) {
+    console.error("Auth error:", err);
+    toast.error("Something went wrong");
+  }
+};
+
   const container = {
     hidden: { opacity: 0 },
     show: {

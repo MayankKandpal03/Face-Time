@@ -24,28 +24,26 @@ export const registerUser = asyncWrap(async (req, res) => {
 })
 
 // Login
-export const loginUser = asyncWrap(async (req, res) => {
-  
+export const loginUser = async (req, res, next) => {
+  try {
+    const email = (req.body.email || "").trim().toLowerCase();
+    const password = req.body.password;
 
-  
-  const { email, password } = req.body
-  if(!email||! password){
-    console.log("Missing Fields");
-    return res.status(400).json({message:"Email and Password Required"});
-    
+    if (!email || !password) return res.status(400).json({ message: "Email and Password Required" });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: "User not found" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
+
+    const token = signToken(user._id);
+    return res.json({ message: "Logged in", token, user: { id: user._id, name: user.name, email: user.email } });
+  } catch (err) {
+    next(err);
   }
-  const user = await User.findOne({ email })
-  if (!user) return res.status(400).json({ message: "User not found" })
-  
-  
+};
 
-  const isMatch = await bcrypt.compare(password, user.password)
-  if (!isMatch) return res.status(401).json({ message: "Invalid credentials" })
-
-  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" })
-
-  res.status(200).json({ message: "Login successful", user, token })
-})
 
 // Get profile
 export const getProfile = asyncWrap(async (req, res) => {

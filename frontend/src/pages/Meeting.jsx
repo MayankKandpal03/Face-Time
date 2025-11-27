@@ -32,34 +32,34 @@ export default function Meeting({ roomId: propRoomId }) {
   const roomId = propRoomId || new URLSearchParams(window.location.search).get("room") || Math.random().toString(36).slice(2, 9);
 
   // Robust getLocalStream (audio fallback when no camera)
-  async function getLocalStream(preferredDeviceId = null) {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputs = devices.filter((d) => d.kind === "videoinput");
-      const audioInputs = devices.filter((d) => d.kind === "audioinput");
+async function getLocalStream(preferredDeviceId = null) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter((d) => d.kind === "videoinput");
+    const hasCamera = videoInputs.length > 0;
+    setNoCamera(!hasCamera);
 
-      const hasCamera = videoInputs.length > 0;
-      setNoCamera(!hasCamera);
-
-      if (preferredDeviceId && hasCamera) {
-        const exists = videoInputs.some((d) => d.deviceId === preferredDeviceId);
-        if (exists) {
-          return await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: preferredDeviceId } }, audio: true });
-        }
-      }
-
-      if (hasCamera) {
-        return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      }
-
-      // fallback: audio-only
-      return await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-    } catch (err) {
-      console.error("getLocalStream error", err);
-      return null;
+    if (hasCamera) {
+      return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     }
+    // fallback audio-only
+    return await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+  } catch (err) {
+    console.error("getLocalStream error", err);
+    // show a helpful UI message
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      // show toast or set state to show UI asking user to allow devices
+      // example: showToast("Please allow camera/microphone access in your browser.");
+      alert("Camera/microphone permission denied. Please allow access in the browser address bar and reload.");
+    } else if (err.name === "NotFoundError") {
+      alert("No camera found. The app will use audio only (if available).");
+    } else {
+      alert("Unable to access media devices: " + err.message);
+    }
+    return null;
   }
+}
 
   useEffect(() => {
     const token = localStorage.getItem("token");

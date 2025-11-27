@@ -31,6 +31,7 @@ function AppContent() {
         <Route path="/" element={<Home />} />
         <Route path="/test" element={<Meeting />} />
         <Route path="/user/login" element={<Login />} />
+        <Route path="/user/register" element={<Login />} />
         <Route path="/meeting" element={<Meeting />} />
         
       </Routes>

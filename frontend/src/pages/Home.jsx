@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { FaVideo } from "react-icons/fa";
 import { FiPlusCircle } from "react-icons/fi";
 import { FaUser } from "react-icons/fa";
@@ -24,7 +24,20 @@ export default function Home() {
   const [roomCode, setRoomCode] = useState("");
   const [userName, setUserName] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loadingProfile, setLoadingProfile] = React.useState(true);
+  const [joinModalOpen, setJoinModalOpen] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = React.useRef(null);
+  const [joinCode, setJoinCode] = React.useState("");
+  const [toast, setToast] = React.useState(null);
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+
+  
+  function showToast(message, type = "info", timeout = 3500) {
+  setToast({ message, type });
+  setTimeout(() => setToast(null), timeout);
+}
 
   const createRoom = () => {
     if (!userName.trim()) {
@@ -46,10 +59,92 @@ export default function Home() {
     
     navigate(`/join/${roomCode.trim()}`, { state: { userName } });
   };
-  useEffect(()=>{
-    const token = localStorage.getItem("token");
-    if(!token) return;
+   // --- BEGIN: Handlers (paste inside component) ---
 
+// A: Start New Meeting (requires login)
+async function handleNewMeeting() {
+  if (!isLoggedIn) {
+    showToast("Please login to create a new meeting", "error");
+    return;
+  }
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch("http://localhost:5000/api/meeting/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name: userName || "Host" }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Create failed");
+    const meetingId = data.meeting?._id || data.meeting?.id || data.meetingId || data.id;
+    if (!meetingId) throw new Error("Invalid meeting id from server");
+    // navigate — assume you already have navigate hook or change to your navigation logic
+    // if you use react-router v6 with useNavigate:
+    navigate(`/meeting?room=${meetingId}`);
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Failed to create meeting", "error");
+  }
+}
+
+// B: Open join-with-code modal
+function openJoinModal() {
+  setJoinModalOpen(true);
+  setJoinCode("");
+}
+
+// Validate and join by code
+async function handleJoinWithCode(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  if (!joinCode.trim()) {
+    showToast("Please enter a meeting code", "error");
+    return;
+  }
+  try {
+    // validate with server
+    const res = await fetch(`http://localhost:5000/api/meeting/${encodeURIComponent(joinCode)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || "Meeting not found");
+    }
+    setJoinModalOpen(false);
+    navigate(`/meeting?room=${encodeURIComponent(joinCode)}`);
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Meeting not found", "error");
+  }
+}
+
+// C: Create Room explicit (same as New Meeting) — toast if not logged in
+async function handleCreateRoom() {
+  if (!isLoggedIn) {
+    showToast("You must be logged in to create rooms", "error");
+    return;
+  }
+  await handleNewMeeting();
+}
+//settings
+React.useEffect(() => {
+  function handleOutsideClick(e) {
+    if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+      setSettingsOpen(false);
+    }
+  }
+  document.addEventListener("mousedown", handleOutsideClick);
+  return () => document.removeEventListener("mousedown", handleOutsideClick);
+}, []);
+// --- END: Handlers ---
+  
+  React.useEffect(() => {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    setIsLoggedIn(false);
+    setLoadingProfile(false);
+    return;
+  }
     fetch("http://localhost:5000/api/user/profile",{
       method:"GET",
       headers:{ "Authorization":`Bearer ${token}` }
@@ -60,12 +155,14 @@ export default function Home() {
         localStorage.removeItem("token");
         setIsLoggedIn(false);
         setUserName("");
+        setLoadingProfile(false);
         return;
       }
       const data = await res.json();
       if (data.user && data.user.name) {
         setUserName(data.user.name);
         setIsLoggedIn(true);
+        setLoadingProfile(false);
       }
     })
     .catch((err) => {
@@ -73,8 +170,10 @@ export default function Home() {
       localStorage.removeItem("token");
       setIsLoggedIn(false);
       setUserName("");
+      setLoadingProfile(false);
     });
   }, [])
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -105,10 +204,43 @@ export default function Home() {
             </div>
 
             <div className="flex justify-end gap-2 py-6 w-full">
-              <div className="text-xl dark:text-white"><Link to="/user/login"> Sign In </Link></div>
+             
               <div className="text-xl dark:text-white"><Link to="/meeting"> Meeting </Link></div>
               <div className="mr-[2%] text-xl text-black dark:text-white">{hours}:{minutes} {day},{date}, {year}</div>
-              <div className="mr-[2%]"> <IoSettings className="text-black cursor-pointer text-2xl dark:text-white" />  </div>
+              {/* Settings icon + dropdown */}
+<div className="mr-[2%] relative" ref={settingsRef}>
+  <button
+    onClick={() => setSettingsOpen((s) => !s)}
+    aria-haspopup="true"
+    aria-expanded={settingsOpen}
+    className="focus:outline-none"
+    title="Settings"
+  >
+    <IoSettings className="text-black cursor-pointer text-2xl dark:text-white" />
+  </button>
+
+  {settingsOpen && (
+    <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-zinc-800 text-black dark:text-white rounded shadow-lg z-50">
+      <nav className="flex flex-col">
+        <Link
+          to="/user/register"
+          className="px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-zinc-700"
+          onClick={() => setSettingsOpen(false)}
+        >
+          Sign Up
+        </Link>
+        <Link
+          to="/user/login"
+          className="px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-zinc-700"
+          onClick={() => setSettingsOpen(false)}
+        >
+          Login
+        </Link>
+      </nav>
+    </div>
+  )}
+</div>
+
             </div>
 
             {/* THEME BUTTON FADE */}
@@ -144,16 +276,17 @@ export default function Home() {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={createRoom}
+                  onClick={handleNewMeeting}
                   className="bg-[#516AED] hover:bg-[#2A3DAD] text-white flex items-center gap-2 px-6 py-2 w-full cursor-pointer rounded-lg font-medium mb-8 transition"
                 >
-                  <FaVideo  className="text-xl "/> New Meeting
+                    <Link to="/meeting" className="flex items-center gap-2"> <FaVideo  className="text-xl "/> New Meeting </Link>
                 </motion.button>
                 </div>
                 <div>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
+                  onClick={openJoinModal}
                   className="bg-blue-600 text-white text-tighter cursor-pointer flex items-center gap-2 px-6 py-2 rounded-lg hover:bg-blue-700 transition"
                 >
                   Join With Code <FiPlusCircle />
@@ -164,6 +297,7 @@ export default function Home() {
               <motion.div
                 whileHover={{ scale: 1.05 }}
                 className="text-blue-600 cursor-pointer text-center"
+                onClick={handleCreateRoom}
                 
               >
                 
@@ -271,7 +405,55 @@ export default function Home() {
         <div className="text-blue-600 dark:text-white">Help</div>
         <div className="text-blue-600 dark:text-white">Term</div>
         <div className="text-blue-600 dark:text-white mr-[2%]">Privacy</div>
+        
       </motion.footer>
+            {/* --- JOIN CODE MODAL (added) --- */}
+      <AnimatePresence>
+        {joinModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          >
+            <motion.div initial={{ y: 20 }} animate={{ y: 0 }} exit={{ y: 20 }} className="bg-white dark:bg-slate-800 rounded p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-3">Enter Meeting Code</h3>
+              <form onSubmit={handleJoinWithCode}>
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  placeholder="Enter meeting id or code"
+                  className="w-full px-3 py-2 rounded mb-3"
+                />
+                <div className="flex gap-2 justify-end">
+                  <button type="button" onClick={() => setJoinModalOpen(false)} className="px-3 py-2 border rounded">
+                    Cancel
+                  </button>
+                  <button type="submit" className="px-3 py-2 bg-indigo-600 text-white rounded">
+                    Join
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- TOAST (added) --- */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className={`fixed bottom-6 right-6 z-50 max-w-sm p-3 rounded shadow-lg ${toast.type === "error" ? "bg-red-600 text-white" : "bg-slate-800 text-white"}`}
+            onClick={() => setToast(null)}
+          >
+            <div className="text-sm">{toast.message}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </motion.div>
   );
 }
