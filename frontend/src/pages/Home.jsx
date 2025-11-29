@@ -48,17 +48,21 @@ export default function Home() {
     navigate(`/room/${meetingId}`, { state: { userName } });
   };
 
-  const joinRoom = (e) => {
-    e.preventDefault();
-    if (!roomCode.trim() || !userName.trim()) {
-      toast.warning("Please enter both name and room ID!", {
-        className: theme=== "dark"? "bg-gray-900 text-white" : "bg-white text-black",
-      });
-      return;
-    }
-    
-    navigate(`/join/${roomCode.trim()}`, { state: { userName } });
-  };
+ const joinRoom = (e) => {
+  e.preventDefault();
+
+  const id = roomCode?.trim();
+  if (!id) {
+    toast.warning("Please enter a room ID!", {
+      className: theme === "dark" ? "bg-gray-900 text-white" : "bg-white text-black",
+    });
+    return;
+  }
+
+  // optional: pass userName as state so Meeting can read it
+  navigate(`/meeting?room=${encodeURIComponent(id)}`, { state: { userName } });
+};
+
    // --- BEGIN: Handlers (paste inside component) ---
 
 // A: Start New Meeting (requires login)
@@ -99,24 +103,29 @@ function openJoinModal() {
 // Validate and join by code
 async function handleJoinWithCode(e) {
   if (e && e.preventDefault) e.preventDefault();
-  if (!joinCode.trim()) {
+
+  const id = joinCode?.trim();
+  if (!id) {
     showToast("Please enter a meeting code", "error");
     return;
   }
+
   try {
-    // validate with server
-    const res = await fetch(`http://localhost:5000/api/meeting/${encodeURIComponent(joinCode)}`);
+    // optional: validate the room exists before navigating
+    const res = await fetch(`http://localhost:5000/api/meeting/${encodeURIComponent(id)}`);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.message || "Meeting not found");
     }
+
     setJoinModalOpen(false);
-    navigate(`/meeting?room=${encodeURIComponent(joinCode)}`);
+    navigate(`/meeting?room=${encodeURIComponent(id)}`, { state: { userName } });
   } catch (err) {
-    console.error(err);
+    console.error("Join with code error:", err);
     showToast(err.message || "Meeting not found", "error");
   }
 }
+
 
 // C: Create Room explicit (same as New Meeting) — toast if not logged in
 async function handleCreateRoom() {
@@ -363,7 +372,7 @@ React.useEffect(() => {
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       type="submit"
-                      className="bg-blue-600 text-white cursor-pointer px-4 py-2 rounded-r-lg hover:bg-blue-700 transition dark:text-white"
+                      className="bg-blue-600 text-white cursor-pointer px-4 py-2 rounded-r-lg hover:bg-blue-700 transition dark:text-white "
                     >
                       Join
                     </motion.button>
@@ -417,19 +426,19 @@ React.useEffect(() => {
             className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
           >
             <motion.div initial={{ y: 20 }} animate={{ y: 0 }} exit={{ y: 20 }} className="bg-white dark:bg-slate-800 rounded p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-3">Enter Meeting Code</h3>
+              <h3 className="text-lg font-semibold mb-3 dark:text-white">Enter Meeting Code</h3>
               <form onSubmit={handleJoinWithCode}>
                 <input
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="Enter meeting id or code"
-                  className="w-full px-3 py-2 rounded mb-3"
+                  placeholder="Enter meeting id or code "
+                  className="w-full px-3 py-2 rounded mb-3 dark:text-white"
                 />
                 <div className="flex gap-2 justify-end">
-                  <button type="button" onClick={() => setJoinModalOpen(false)} className="px-3 py-2 border rounded">
+                  <button type="button" onClick={() => setJoinModalOpen(false)} className="px-3 py-2 border rounded cursor-pointer dark:text-white">
                     Cancel
                   </button>
-                  <button type="submit" className="px-3 py-2 bg-indigo-600 text-white rounded">
+                  <button type="submit" className="px-3 py-2 cursor-pointer bg-indigo-600 text-white rounded">
                     Join
                   </button>
                 </div>

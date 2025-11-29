@@ -11,7 +11,7 @@ const containerVariants = { hidden: { opacity: 0, y: 8 }, visible: { opacity: 1,
 const cardVariants = { hidden: { opacity: 0, scale: 0.98 }, visible: { opacity: 1, scale: 1, transition: { duration: 0.18 } }, hover: { scale: 1.03 } };
 
 export default function Meeting({ roomId: propRoomId }) {
-  const [userName, setUserName] = useState("");
+  const [userName, setUserName] = useState("Guest");
   const [isMuted, setIsMuted] = useState(false);
   const [videoOn, setVideoOn] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
@@ -21,7 +21,9 @@ export default function Meeting({ roomId: propRoomId }) {
   const [chatValue, setChatValue] = useState("");
   const [participants, setParticipants] = useState([]);
   const [noCamera, setNoCamera] = useState(false);
-
+  const [isTranscribing, setIsTranscribing] = React.useState(false);
+  const [transcripts, setTranscripts] = React.useState([]); // {senderId, senderName, text, ts}
+  const recognitionRef = React.useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const socketRef = useRef(null);
@@ -29,7 +31,47 @@ export default function Meeting({ roomId: propRoomId }) {
   const mediaRecorderRef = useRef(null);
   const recordedBlobsRef = useRef([]);
 
-  const roomId = propRoomId || new URLSearchParams(window.location.search).get("room") || Math.random().toString(36).slice(2, 9);
+  React.useEffect(() => {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    setUserName("Guest");
+    return;
+  }
+
+  fetch("http://localhost:5000/api/user/profile", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data?.user?.name) {
+        setUserName(data.user.name);
+      }
+    })
+    .catch(() => {
+      setUserName("Guest");
+    });
+}, []);
+
+
+const initialRoomId = React.useMemo(() => {
+  return propRoomId
+    || new URLSearchParams(window.location.search).get("room")
+    || Math.random().toString(36).slice(2, 9);
+}, [propRoomId]);
+ const roomIdRef = React.useRef(initialRoomId);
+const roomId = roomIdRef.current;
+React.useEffect(() => {
+  const current = roomIdRef.current;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("room") !== current) {
+    params.set("room", current);
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, "", newUrl);
+  }
+}, []);
 
   // Robust getLocalStream (audio fallback when no camera)
 async function getLocalStream(preferredDeviceId = null) {
@@ -195,7 +237,7 @@ async function getLocalStream(preferredDeviceId = null) {
   function startRecording() { const stream = localStreamRef.current; if (!stream) return; recordedBlobsRef.current = []; try { const mr = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9,opus" }); mediaRecorderRef.current = mr; mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedBlobsRef.current.push(e.data); }; mr.onstop = () => { const blob = new Blob(recordedBlobsRef.current, { type: "video/webm" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.style.display = "none"; a.href = url; a.download = `recording_${roomId}.webm`; document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000); }; mr.start(); setRecording(true); } catch (e) { console.error("MediaRecorder error", e); } }
   function stopRecording() { if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") { mediaRecorderRef.current.stop(); setRecording(false); } }
 
-  function sendMessage() { if (!chatValue.trim()) return; const msg = { from: userName || "Guest", text: chatValue, time: new Date().toISOString() }; socketRef.current.emit("send-group-message", { meetingId: roomId, message: msg }); setMessages((m) => [...m, msg]); setChatValue(""); }
+  function sendMessage() { if (!chatValue.trim()) return; const msg = { from: userName, text: chatValue, time: new Date().toISOString() }; socketRef.current.emit("send-group-message", { meetingId: roomId, message: msg }); setMessages((m) => [...m, msg]); setChatValue(""); }
 
   function renderRemoteVideos() {
     // show primary large video (first peer) and smaller thumbnails
