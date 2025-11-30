@@ -2,69 +2,107 @@ import { motion } from "framer-motion";
 import { useTheme } from "../ThemeContext";
 import { useState } from "react";
 import { toast } from "react-toastify";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { FaGoogle } from "react-icons/fa";
+
+
+// cookie helpers — paste near top of file (inside same module)
+function setCookie(name, value, days = 7) {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString(); // 864e5 == 24*60*60*1000
+  const secure = window.location.protocol === "https:";
+  // encode value so JSON strings are safe
+  document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Expires=${expires}; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+
+function getCookie(name) {
+  const cookies = document.cookie ? document.cookie.split("; ") : [];
+  for (let i = 0; i < cookies.length; i++) {
+    const [k, v] = cookies[i].split("=");
+    if (decodeURIComponent(k) === name) return decodeURIComponent(v || "");
+  }
+  return null;
+}
+
 
 export default function Login() {
   const { theme } = useTheme();
   const navigate = useNavigate();
-  const [isRegisterMode, setIsRegisterMode]=useState(false);
-  const [formData, setFormData] =useState({
-   name:"",
-   email:"",
-   password:""
+  const location = useLocation();
 
+  // Detect register mode by route ending; covers "/register" and "/user/register"
+  const isRegisterMode = location.pathname.endsWith("/register");
+
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    password: ""
   });
+
   function handleChange(e) {
-  const { name, value } = e.target;
-  setFormData(prev => ({ ...prev, [name]: value }));
-}
-const handleSubmit = async () => {
-  try {
-    // client-side validation
-    if (isRegisterMode) {
-      if (!formData.name?.trim() || !formData.email?.trim() || !formData.password?.trim()) {
-        toast.warning("Please fill name, email and password to register.");
-        return;
-      }
-    } else {
-      if (!formData.email?.trim() || !formData.password?.trim()) {
-        toast.warning("Please enter email and password to login.");
-        return;
-      }
-    }
-
-    const url = isRegisterMode
-      ? "http://localhost:5000/api/user/register"
-      : "http://localhost:5000/api/user/login";
-
-    const payload = isRegisterMode ? formData : { email: formData.email.trim(), password: formData.password };
-
-    console.log("Auth payload ->", payload);
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      const msg = data?.message || (isRegisterMode ? "Register failed" : "Login failed");
-      toast.error(msg);
-      console.error("Auth failure", res.status, data);
-      return;
-    }
-
-    // Save token and redirect
-    localStorage.setItem("token", data.token);
-    toast.success(isRegisterMode ? "Registered" : "Logged in");
-    navigate("/");
-  } catch (err) {
-    console.error("Auth error:", err);
-    toast.error("Something went wrong");
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   }
-};
+
+  const handleSubmit = async () => {
+    try {
+      // client-side validation
+      if (isRegisterMode) {
+        if (!formData.name?.trim() || !formData.email?.trim() || !formData.password?.trim()) {
+          toast.warning("Please fill name, email and password to register.");
+          return;
+        }
+      } else {
+        if (!formData.email?.trim() || !formData.password?.trim()) {
+          toast.warning("Please enter email and password to login.");
+          return;
+        }
+      }
+
+      const url = isRegisterMode
+        ? "http://localhost:5000/api/user/register"
+        : "http://localhost:5000/api/user/login";
+
+      const payload = isRegisterMode ? formData : { email: formData.email.trim(), password: formData.password };
+
+      console.log("Auth payload ->", payload);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const msg = data?.message || (isRegisterMode ? "Register failed" : "Login failed");
+        toast.error(msg);
+        console.error("Auth failure", res.status, data);
+        return;
+      }
+      if (!data.token) {
+        toast.error("No token received from server");
+        return;
+      }
+   localStorage.setItem("token", data.token);
+setCookie("token", data.token, 7);
+
+// store user cookie if server sent user object
+if (data.user) {
+  try {
+    setCookie("user", JSON.stringify(data.user), 7);
+  } catch (e) {
+    setCookie("user", JSON.stringify({ id: data.user._id, name: data.user.name, email: data.user.email }), 7);
+  }
+}
+
+toast.success(isRegisterMode ? "Registered" : "Logged in");
+navigate("/");
+    } catch (err) {
+      console.error("Auth error:", err);
+      toast.error("Something went wrong");
+    }
+  };
 
   const container = {
     hidden: { opacity: 0 },
@@ -79,22 +117,21 @@ const handleSubmit = async () => {
     show: { opacity: 1, y: 0 }
   };
 
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.6 }}
-      className={ `min-h-screen flex items-center justify-center p-4 transition-all duration-300 
+      className={`min-h-screen flex items-center justify-center p-4 transition-all duration-300 
         ${theme === "dark"
-            ? "bg-gradient-to-br from-gray-900 to-gray-800"
-            : "bg-gradient-to-br from-blue-50 to-zinc-100"}`}
+          ? "bg-gradient-to-br from-gray-900 to-gray-800"
+          : "bg-gradient-to-br from-blue-50 to-zinc-100"}`}
     >
-      
+
       <motion.div
         className="absolute inset-0 -z-10"
         animate={{
-          opacity:theme==="dark"? 0.12:0.3,
+          opacity: theme === "dark" ? 0.12 : 0.3,
           background: [
             "radial-gradient(circle at 20% 20%, rgba(99,102,241,0.3), transparent 60%)",
             "radial-gradient(circle at 80% 30%, rgba(79,70,229,0.3), transparent 60%)",
@@ -108,7 +145,7 @@ const handleSubmit = async () => {
         initial={{ y: 40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.7, ease: "easeOut" }}
-        className={     `w-full max-w-md backdrop-blur-xl shadow-xl rounded-2xl p-8 transition-all 
+        className={`w-full max-w-md backdrop-blur-xl shadow-xl rounded-2xl p-8 transition-all 
            ${theme === "dark" ? "bg-gray-800/80 text-white" : "bg-white/80 text-black"}`}
       >
         <motion.div
@@ -121,23 +158,25 @@ const handleSubmit = async () => {
             variants={item}
             className="text-3xl font-bold text-center text-gray-800 dark:text-white"
           >
-            {isRegisterMode?"Register":"Login"}
+            {isRegisterMode ? "Register" : "Login"}
           </motion.h1>
 
-          {/* Name Field */}
-          <motion.div variants={item} className="flex flex-col">
-            <label className="text-gray-700 font-medium mb-1 dark:text-white">Name</label>
-            <motion.input
-              whileFocus={{ scale: 1.02 }}
-              transition={{ type: "spring", stiffness: 200 }}
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              placeholder="Enter your name"
-              className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-400 outline-none"
-            />
-          </motion.div>
+          {/* Name Field - show only in register mode */}
+          {isRegisterMode && (
+            <motion.div variants={item} className="flex flex-col">
+              <label className="text-gray-700 font-medium mb-1 dark:text-white">Name</label>
+              <motion.input
+                whileFocus={{ scale: 1.02 }}
+                transition={{ type: "spring", stiffness: 200 }}
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="Enter your name"
+                className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+            </motion.div>
+          )}
 
           {/* Email Field */}
           <motion.div variants={item} className="flex flex-col">
@@ -168,25 +207,39 @@ const handleSubmit = async () => {
               className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-400 outline-none"
             />
           </motion.div>
-          <motion.div 
-          onClick={() => setIsRegisterMode(!isRegisterMode)}
 
-          className="text-center mt-3 text-blue-600">
-            {isRegisterMode? "Already have an account? Login" :"Don't have an account? Register"}
-            
+          {/* Route Toggle — navigate to the other route (no local toggling) */}
+          <motion.div className="text-center mt-3 text-blue-600 cursor-pointer">
+            {isRegisterMode ? (
+              <span onClick={() => navigate("/login")}>Already have an account? Login</span>
+            ) : (
+              <span onClick={() => navigate("/register")}>Don't have an account? Register</span>
+            )}
           </motion.div>
-          {/* Login Button */}
+           
+          {/* Login/Register Button */}
           <motion.button
             variants={item}
             whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.99}}
+            whileTap={{ scale: 0.99 }}
             transition={{ type: "spring", stiffness: 200 }}
             onClick={handleSubmit}
-            
             className="w-full py-3 bg-indigo-600 text-white rounded-lg font-semibold shadow-md hover:bg-indigo-700 cursor-pointer"
           >
-           {isRegisterMode?"Register": "Login"}
+            {isRegisterMode ? "Register" : "Login"}
           </motion.button>
+          <motion.button
+  variants={item}
+  whileHover={{ scale: 1.02 }}
+  whileTap={{ scale: 0.99 }}
+  transition={{ type: "spring", stiffness: 200 }}
+  onClick={() => { window.location.href = "http://localhost:5000/api/auth/google"; }}
+  className="w-full py-3 border rounded-lg font-semibold shadow-sm hover:shadow-md flex cursor-pointer items-center justify-center gap-3 bg-white text-black"
+>
+  <FaGoogle />
+
+  Sign in with Google
+</motion.button>
         </motion.div>
       </motion.div>
     </motion.div>

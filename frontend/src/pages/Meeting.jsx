@@ -5,6 +5,7 @@ import io from "socket.io-client";
 const UPLOADED_FILE_URL = "/mnt/data/Home.jsx";
 const ICE_CONFIG = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER ?? "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 
 // Motion variants
 const containerVariants = { hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { staggerChildren: 0.06 } } };
@@ -31,82 +32,86 @@ export default function Meeting({ roomId: propRoomId }) {
   const mediaRecorderRef = useRef(null);
   const recordedBlobsRef = useRef([]);
 
+  // New refs for transcription recorder/stream
+  const transcribeRecorderRef = useRef(null);
+  const transcribeChunksRef = useRef([]);
+  const transcribeStreamRef = useRef(null);
+
   React.useEffect(() => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    setUserName("Guest");
-    return;
-  }
-
-  fetch("http://localhost:5000/api/user/profile", {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-    .then(res => res.json())
-    .then(data => {
-      if (data?.user?.name) {
-        setUserName(data.user.name);
-      }
-    })
-    .catch(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
       setUserName("Guest");
-    });
-}, []);
+      return;
+    }
 
+    fetch(`${API_BASE}/api/user/profile`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data?.user?.name) {
+          setUserName(data.user.name);
+        }
+      })
+      .catch(() => {
+        setUserName("Guest");
+      });
+  }, []);
 
-const initialRoomId = React.useMemo(() => {
-  return propRoomId
-    || new URLSearchParams(window.location.search).get("room")
-    || Math.random().toString(36).slice(2, 9);
-}, [propRoomId]);
- const roomIdRef = React.useRef(initialRoomId);
-const roomId = roomIdRef.current;
-React.useEffect(() => {
-  const current = roomIdRef.current;
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("room") !== current) {
-    params.set("room", current);
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.replaceState({}, "", newUrl);
-  }
-}, []);
+  const initialRoomId = React.useMemo(() => {
+    return propRoomId
+      || new URLSearchParams(window.location.search).get("room")
+      || Math.random().toString(36).slice(2, 9);
+  }, [propRoomId]);
+  const roomIdRef = React.useRef(initialRoomId);
+  const roomId = roomIdRef.current;
+  React.useEffect(() => {
+    const current = roomIdRef.current;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("room") !== current) {
+      params.set("room", current);
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, "", newUrl);
+    }
+  }, []);
 
   // Robust getLocalStream (audio fallback when no camera)
-async function getLocalStream(preferredDeviceId = null) {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoInputs = devices.filter((d) => d.kind === "videoinput");
-    const hasCamera = videoInputs.length > 0;
-    setNoCamera(!hasCamera);
+  async function getLocalStream(preferredDeviceId = null) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      const hasCamera = videoInputs.length > 0;
+      setNoCamera(!hasCamera);
 
-    if (hasCamera) {
-      return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (hasCamera) {
+        return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      }
+      // fallback audio-only
+      return await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+    } catch (err) {
+      console.error("getLocalStream error", err);
+      // show a helpful UI message
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        // show toast or set state to show UI asking user to allow devices
+        // example: showToast("Please allow camera/microphone access in your browser.");
+        alert("Camera/microphone permission denied. Please allow access in the browser address bar and reload.");
+      } else if (err.name === "NotFoundError") {
+        alert("No camera found. The app will use audio only (if available).");
+      } else {
+        alert("Unable to access media devices: " + err.message);
+      }
+      return null;
     }
-    // fallback audio-only
-    return await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-  } catch (err) {
-    console.error("getLocalStream error", err);
-    // show a helpful UI message
-    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-      // show toast or set state to show UI asking user to allow devices
-      // example: showToast("Please allow camera/microphone access in your browser.");
-      alert("Camera/microphone permission denied. Please allow access in the browser address bar and reload.");
-    } else if (err.name === "NotFoundError") {
-      alert("No camera found. The app will use audio only (if available).");
-    } else {
-      alert("Unable to access media devices: " + err.message);
-    }
-    return null;
   }
-}
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      fetch("http://localhost:5000/api/user/profile", { headers: { Authorization: `Bearer ${token}` } })
+      fetch(`${API_BASE}/api/user/profile`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => r.json())
         .then((data) => setUserName(data.user?.name || ""))
         .catch(() => {});
@@ -136,6 +141,23 @@ async function getLocalStream(preferredDeviceId = null) {
       socketRef.current.on("receive-group-message", (msg) => setMessages((m) => [...m, msg]));
       socketRef.current.on("user-joined", ({ socketId, userId }) => { setParticipants((list) => [...list, { socketId, name: userId }]); createPeerConnectionAndOffer(socketId); });
       socketRef.current.on("user-left", ({ socketId }) => cleanupPeer(socketId));
+
+      // listen for transcript updates from server
+      socketRef.current.on("transcript-update", (payload) => {
+        // payload: { transcriptId, meetingId, text, fullText, segments, isFinal }
+        if (!payload) return;
+        if (payload.meetingId && payload.meetingId !== roomId) return;
+        const text = payload.text || payload.fullText || "";
+        if (!text) return;
+        const entry = {
+          senderId: payload.transcriptId || "server",
+          senderName: payload.senderName || "Transcript",
+          text,
+          ts: Date.now(),
+          isFinal: !!payload.isFinal
+        };
+        setTranscripts((t) => [...t, entry]);
+      });
     };
 
     start();
@@ -144,6 +166,13 @@ async function getLocalStream(preferredDeviceId = null) {
       for (const id in pcsRef.current) { pcsRef.current[id].close(); delete pcsRef.current[id]; }
       if (socketRef.current) socketRef.current.disconnect();
       if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
+      // cleanup any transcription recorder/stream
+      if (transcribeRecorderRef.current && transcribeRecorderRef.current.state !== "inactive") {
+        try { transcribeRecorderRef.current.stop(); } catch (e) {}
+      }
+      if (transcribeStreamRef.current) {
+        try { transcribeStreamRef.current.getTracks().forEach((t) => t.stop()); } catch (e) {}
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -237,6 +266,105 @@ async function getLocalStream(preferredDeviceId = null) {
   function startRecording() { const stream = localStreamRef.current; if (!stream) return; recordedBlobsRef.current = []; try { const mr = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9,opus" }); mediaRecorderRef.current = mr; mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedBlobsRef.current.push(e.data); }; mr.onstop = () => { const blob = new Blob(recordedBlobsRef.current, { type: "video/webm" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.style.display = "none"; a.href = url; a.download = `recording_${roomId}.webm`; document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000); }; mr.start(); setRecording(true); } catch (e) { console.error("MediaRecorder error", e); } }
   function stopRecording() { if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") { mediaRecorderRef.current.stop(); setRecording(false); } }
 
+  // Transcription: upload chunk to backend
+  async function uploadAudioBlob(blob, isFinal = false) {
+    try {
+      const token = localStorage.getItem("token");
+      const fd = new FormData();
+      if (blob) fd.append("audio", blob, `chunk_${Date.now()}.webm`);
+      fd.append("meetingId", roomId);
+      if (isFinal) fd.append("isFinal", "true");
+
+      const res = await fetch(`${API_BASE}/api/transcribe/upload`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      // server will also emit via socket; we don't rely on response, but we swallow possible returned transcript
+      const data = await res.json().catch(() => ({}));
+      if (data?.transcript?.fullText) {
+        const entry = {
+          senderId: data.transcript._id || "server",
+          senderName: "Transcript",
+          text: data.transcript.fullText,
+          ts: Date.now(),
+          isFinal: !!data.transcript.isFinal
+        };
+        setTranscripts((t) => [...t, entry]);
+      }
+    } catch (err) {
+      console.error("uploadAudioBlob error", err);
+    }
+  }
+
+  // Start transcription (audio-only MediaRecorder separate from video recorder)
+  async function startTranscription() {
+    if (isTranscribing) return;
+    try {
+      // request audio-only stream to avoid disturbing video tracks
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      transcribeStreamRef.current = stream;
+
+      // create MediaRecorder for audio
+      const options = { mimeType: "audio/webm;codecs=opus" };
+      const mr = new MediaRecorder(stream, options);
+      transcribeRecorderRef.current = mr;
+      transcribeChunksRef.current = [];
+
+      mr.ondataavailable = async (e) => {
+        if (!e.data || e.data.size === 0) return;
+        // accumulate chunk locally (optional)
+        transcribeChunksRef.current.push(e.data);
+        // send each chunk for near-live transcription
+        await uploadAudioBlob(e.data, false);
+      };
+
+      mr.onstop = async () => {
+        // when stopping, send final assembled blob if there are leftover chunks
+        try {
+          if (transcribeChunksRef.current.length) {
+            const finalBlob = new Blob(transcribeChunksRef.current, { type: "audio/webm" });
+            await uploadAudioBlob(finalBlob, true);
+          } else {
+            // still notify server stream ended (no audio in final)
+            await uploadAudioBlob(null, true);
+          }
+        } catch (e) {
+          console.error("final upload error", e);
+        } finally {
+          // stop tracks
+          try { transcribeStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch (e) {}
+          transcribeStreamRef.current = null;
+          transcribeChunksRef.current = [];
+          transcribeRecorderRef.current = null;
+        }
+      };
+
+      // start with a timeslice so ondataavailable fires periodically (3s)
+      mr.start(3000);
+      setIsTranscribing(true);
+    } catch (err) {
+      console.error("startTranscription error", err);
+      alert("Unable to start transcription: " + (err.message || err));
+    }
+  }
+
+  async function stopTranscription() {
+    if (!isTranscribing) return;
+    try {
+      if (transcribeRecorderRef.current && transcribeRecorderRef.current.state !== "inactive") {
+        transcribeRecorderRef.current.stop();
+      } else {
+        // still mark final on server if recorder not active
+        await uploadAudioBlob(null, true);
+      }
+    } catch (e) {
+      console.error("stopTranscription error", e);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
   function sendMessage() { if (!chatValue.trim()) return; const msg = { from: userName, text: chatValue, time: new Date().toISOString() }; socketRef.current.emit("send-group-message", { meetingId: roomId, message: msg }); setMessages((m) => [...m, msg]); setChatValue(""); }
 
   function renderRemoteVideos() {
@@ -268,6 +396,9 @@ async function getLocalStream(preferredDeviceId = null) {
       </>
     );
   }
+
+  // helper to render transcript as a single block of text
+  const transcriptText = transcripts.map((t) => `${new Date(t.ts).toLocaleTimeString()} • ${t.senderName || "Transcript"}: ${t.text}`).join("\n");
 
   return (
     <motion.div className="relative h-screen bg-slate-900 text-white" variants={containerVariants} initial="hidden" animate="visible">
@@ -328,6 +459,24 @@ async function getLocalStream(preferredDeviceId = null) {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Transcript panel (new) */}
+              <div className="p-3 bg-slate-800/40 rounded">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold">Transcript</div>
+                  <div className="flex gap-2">
+                    {!isTranscribing ? (
+                      <button onClick={startTranscription} className="px-3 py-1 bg-emerald-600 rounded text-sm">Start Transcript</button>
+                    ) : (
+                      <button onClick={stopTranscription} className="px-3 py-1 bg-red-600 rounded text-sm">Stop Transcript</button>
+                    )}
+                  </div>
+                </div>
+                <div className="text-xs max-h-48 overflow-auto whitespace-pre-wrap bg-slate-900/30 p-2 rounded">
+                  {transcripts.length ? transcriptText : "No transcript yet"}
+                </div>
+                <div className="mt-2 text-xs text-gray-400">Transcription is processed server-side and updates will appear here.</div>
               </div>
             </motion.aside>
           </div>

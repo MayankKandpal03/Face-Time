@@ -19,6 +19,7 @@ const day = now.toLocaleString('en-US', { weekday: 'long' });
 const hours = now.getHours();
 const minutes = now.getMinutes();
 
+
 export default function Home() {
   
   const [roomCode, setRoomCode] = useState("");
@@ -372,6 +373,7 @@ React.useEffect(() => {
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       type="submit"
+                      onClick={handleNewMeeting}
                       className="bg-blue-600 text-white cursor-pointer px-4 py-2 rounded-r-lg hover:bg-blue-700 transition dark:text-white "
                     >
                       Join
@@ -438,7 +440,7 @@ React.useEffect(() => {
                   <button type="button" onClick={() => setJoinModalOpen(false)} className="px-3 py-2 border rounded cursor-pointer dark:text-white">
                     Cancel
                   </button>
-                  <button type="submit" className="px-3 py-2 cursor-pointer bg-indigo-600 text-white rounded">
+                  <button type="submit" onClick={handleNewMeeting} className="px-3 py-2 cursor-pointer bg-indigo-600 text-white rounded">
                     Join
                   </button>
                 </div>

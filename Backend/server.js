@@ -7,9 +7,13 @@ import methodOverride from "method-override";
 import dotenv from "dotenv";
 import cors from "cors";
 import { Server as IOServer } from "socket.io";
-
+import passport from "passport";
+import setupGooglePassport from "./config/passportGoogle.js";
+import authRoutes from "./routes/authRoutes.js";
+import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db.js";               // your db.js
 import { AppError } from "./utils/errorHandler.js";       // your error handler
+import transcribeRoutes from "./routes/transcribeRoutes.js";
 
 // Routes (keep these files as you already have)
 import userRoutes from "./routes/userRoutes.js";
@@ -45,13 +49,19 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // Connect to DB
 connectDB();
-
+//cookie parser
+app.use(cookieParser());
+app.use(passport.initialize());
+setupGooglePassport()
 // API routes
 app.use("/api/user", userRoutes);
 app.use("/api/meeting", meetingRoutes);
 app.use("/api/participant", participantRoutes);
 app.use("/api/message", messageRoutes);
 app.use("/api/schedule", scheduleRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/transcribe", transcribeRoutes);
+
 
 // 404 handler
 app.use((req, res, next) => {
@@ -76,6 +86,7 @@ const io = new IOServer(server, {
   }
 });
 
+app.locals.io = io;
 // Attach socket handler (implements JWT auth + signalling + host controls)
 socketHandler(io);
 
