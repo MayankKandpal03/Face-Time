@@ -1,5 +1,6 @@
 // socket/socket.js
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import Meeting from "../model/meeting.js";
 import Participant from "../model/participant.js";
 import { hostCheck } from "../utils/hostCheck.js";
@@ -9,9 +10,8 @@ import { hostCheck } from "../utils/hostCheck.js";
  *
  * Protocol:
  * - Client connects with: io({ auth: { token: "<JWT>" } })
- * - Client emits 'join-room' { meetingId }
- * - Server verifies JWT, joins socket to room, saves socketId to Participant,
- *   emits existing members to joining client, and notifies others.
+ * - Client emits 'join-room' { meetingId }  // meetingId can be either Mongo _id OR short roomCode
+ * - Server resolves meetingId -> meeting._id, joins socket to room (meeting._id), and persists Participant
  */
 export const socketHandler = (io) => {
   // Socket auth middleware: require valid JWT
@@ -30,37 +30,73 @@ export const socketHandler = (io) => {
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id, "user:", socket.userId);
 
+    // Helper: resolve a client-provided meetingId (could be _id or short roomCode)
+    async function resolveMeeting(meetingIdLike) {
+      if (!meetingIdLike) return null;
+
+      // 1) If it looks like a Mongo ObjectId, try findById first
+      if (mongoose.Types.ObjectId.isValid(meetingIdLike)) {
+        try {
+          const m = await Meeting.findById(meetingIdLike).exec();
+          if (m) return m;
+        } catch (e) {
+          // ignore cast errors or other DB issues and fallback below
+          console.warn("resolveMeeting: findById failed, falling back to roomCode lookup", e?.message);
+        }
+      }
+
+      // 2) Fallback: lookup by roomCode (frontend-generated short code)
+      try {
+        const m = await Meeting.findOne({ roomCode: meetingIdLike }).exec();
+        if (m) return m;
+      } catch (e) {
+        console.warn("resolveMeeting: findOne({roomCode}) failed", e?.message);
+      }
+
+      // Not found
+      return null;
+    }
+
     // Join a meeting room (client emits { meetingId })
     socket.on("join-room", async ({ meetingId }) => {
-      // Optional: verify meeting exists and user is participant/allowed
-      const meeting = await Meeting.findById(meetingId);
-      if (!meeting) {
-        socket.emit("error", { message: "Meeting not found" });
-        return;
-      }
-
-      // join socket.io room
-      socket.join(meetingId);
-      socket.meetingId = meetingId;
-
-      // Save or update Participant socketId (so host can target them)
       try {
-        await Participant.findOneAndUpdate(
-          { meetingId, userId: socket.userId },
-          { $set: { socketId: socket.id, joinedAt: new Date(), leftAt: null } },
-          { upsert: true, new: true }
-        );
+        const meeting = await resolveMeeting(meetingId);
+        if (!meeting) {
+          // emit specific event so client can show UI
+          socket.emit("join-error", { message: "Meeting not found" });
+          return;
+        }
+
+        // Use canonical meeting id (string) for socket room name and DB references
+        const meetingDbId = meeting._id.toString();
+
+        // join socket.io room
+        socket.join(meetingDbId);
+        socket.meetingId = meetingDbId;
+
+        // Save or update Participant socketId (so host can target them)
+        try {
+          await Participant.findOneAndUpdate(
+            { meetingId: meetingDbId, userId: socket.userId },
+            { $set: { socketId: socket.id, joinedAt: new Date(), leftAt: null } },
+            { upsert: true, new: true }
+          );
+        } catch (err) {
+          console.error("Participant update error:", err.message);
+        }
+
+        // Inform the joining client about other sockets in the room
+        const roomSet = io.sockets.adapter.rooms.get(meetingDbId) || new Set();
+        const clients = Array.from(roomSet);
+        const otherClients = clients.filter(id => id !== socket.id);
+        socket.emit("all-users", { users: otherClients });
+
+        // Notify others a user joined (send socket id and user id)
+        socket.to(meetingDbId).emit("user-joined", { socketId: socket.id, userId: socket.userId });
       } catch (err) {
-        console.error("Participant update error:", err.message);
+        console.error("socket join-room error:", err);
+        socket.emit("join-error", { message: "Join failed" });
       }
-
-      // Inform the joining client about other sockets in the room
-      const clients = Array.from(io.sockets.adapter.rooms.get(meetingId) || []);
-      const otherClients = clients.filter(id => id !== socket.id);
-      socket.emit("all-users", { users: otherClients });
-
-      // Notify others a user joined (send socket id and user id)
-      socket.to(meetingId).emit("user-joined", { socketId: socket.id, userId: socket.userId });
     });
 
     // Offer -> target socket
@@ -83,8 +119,8 @@ export const socketHandler = (io) => {
       try {
         const ok = await hostCheck(socket, meetingId);
         if (!ok) return socket.emit("error", { message: "Not authorized" });
-        // update DB state
-        await Participant.findOneAndUpdate({ meetingId, socketId: target }, { $set: { isMuted: true }});
+        // update DB state (meetingId here should be canonical _id string)
+        await Participant.findOneAndUpdate({ meetingId, socketId: target }, { $set: { isMuted: true } });
         // inform target socket
         io.to(target).emit("force-mute");
       } catch (err) {
@@ -98,7 +134,7 @@ export const socketHandler = (io) => {
         const ok = await hostCheck(socket, meetingId);
         if (!ok) return socket.emit("error", { message: "Not authorized" });
         // delete participant document or mark leftAt
-        await Participant.findOneAndUpdate({ meetingId, socketId: target }, { $set: { leftAt: new Date() }});
+        await Participant.findOneAndUpdate({ meetingId, socketId: target }, { $set: { leftAt: new Date() } });
         // notify target to disconnect
         io.to(target).emit("removed-from-meeting");
         // notify others
@@ -113,24 +149,27 @@ export const socketHandler = (io) => {
       try {
         const ok = await hostCheck(socket, meetingId);
         if (!ok) return socket.emit("error", { message: "Not authorized" });
-        await Meeting.findByIdAndUpdate(meetingId, { isLocked: !!lock });
+        await Meeting.findByIdAndUpdate(meetingId, { isLocked: !!lock }).exec();
         io.to(meetingId).emit("room-locked", { locked: !!lock });
       } catch (err) {
         console.error("lock-room error:", err.message);
       }
     });
-    
+
     socket.on("send-group-message", ({ meetingId, message }) => {
       socket.to(meetingId).emit("receive-group-message", message);
     });
 
     // Leave room gracefully
     socket.on("leave-room", async ({ meetingId }) => {
-      socket.leave(meetingId);
       try {
-        await Participant.findOneAndUpdate({ meetingId, socketId: socket.id }, { $set: { leftAt: new Date(), socketId: null }});
-      } catch (err) { /* ignore */ }
-      socket.to(meetingId).emit("user-left", { socketId: socket.id, userId: socket.userId });
+        const canonical = socket.meetingId || meetingId;
+        socket.leave(canonical);
+        await Participant.findOneAndUpdate({ meetingId: canonical, socketId: socket.id }, { $set: { leftAt: new Date(), socketId: null } });
+        socket.to(canonical).emit("user-left", { socketId: socket.id, userId: socket.userId });
+      } catch (err) {
+        // ignore
+      }
     });
 
     // Disconnect (socket closed)
@@ -138,7 +177,7 @@ export const socketHandler = (io) => {
       const meetingId = socket.meetingId;
       if (meetingId) {
         try {
-          await Participant.findOneAndUpdate({ meetingId, socketId: socket.id }, { $set: { leftAt: new Date(), socketId: null }});
+          await Participant.findOneAndUpdate({ meetingId, socketId: socket.id }, { $set: { leftAt: new Date(), socketId: null } });
         } catch (err) { /* ignore */ }
         socket.to(meetingId).emit("user-left", { socketId: socket.id, userId: socket.userId });
       }

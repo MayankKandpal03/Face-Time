@@ -31,6 +31,7 @@ export default function Home() {
   const settingsRef = React.useRef(null);
   const [joinCode, setJoinCode] = React.useState("");
   const [toast, setToast] = React.useState(null);
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
@@ -100,6 +101,22 @@ function openJoinModal() {
   setJoinModalOpen(true);
   setJoinCode("");
 }
+//logoutRoute
+const handleLogout = () => {
+  // remove cookie (set expired)
+  document.cookie = "token=; Max-Age=0; Path=/;";
+  document.cookie = "user=; Max-Age=0; Path=/;";
+
+  // remove localStorage token if any
+  localStorage.removeItem("token");
+
+  // update UI state
+  setIsLoggedIn(false);
+  setUserName("Guest");
+
+  // redirect to home or login
+  navigate("/");
+};
 
 // Validate and join by code
 async function handleJoinWithCode(e) {
@@ -217,51 +234,98 @@ React.useEffect(() => {
              
               <div className="text-xl dark:text-white"><Link to="/meeting"> Meeting </Link></div>
               <div className="mr-[2%] text-xl text-black dark:text-white">{hours}:{minutes} {day},{date}, {year}</div>
-              {/* Settings icon + dropdown */}
-<div className="mr-[2%] relative" ref={settingsRef}>
+               {/* --- USER AVATAR + NAME (NEW) --- */}
+ <div className="relative flex flex-col items-center mr-2 select-none">
+  {/* Avatar (always toggles dropdown) */}
   <button
-    onClick={() => setSettingsOpen((s) => !s)}
+    onClick={() => setAvatarOpen((prev) => !prev)}
+    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold cursor-pointer uppercase shadow-sm focus:outline-none"
+    style={{ backgroundColor: isLoggedIn ? "#516AED" : "#6b7280" }}
+    title={isLoggedIn ? `Signed in as ${userName}` : "Not signed in"}
     aria-haspopup="true"
-    aria-expanded={settingsOpen}
-    className="focus:outline-none"
-    title="Settings"
+    aria-expanded={avatarOpen}
   >
-    <IoSettings className="text-black cursor-pointer text-2xl dark:text-white" />
+    {(userName && userName.trim().length) ? userName.trim().charAt(0) : "G"}
   </button>
 
-  {settingsOpen && (
-    <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-zinc-800 text-black dark:text-white rounded shadow-lg z-50">
-      <nav className="flex flex-col">
-        <Link
-          to="/user/register"
-          className="px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-zinc-700"
-          onClick={() => setSettingsOpen(false)}
-        >
-          Sign Up
-        </Link>
-        <Link
-          to="/user/login"
-          className="px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-zinc-700"
-          onClick={() => setSettingsOpen(false)}
-        >
-          Login
-        </Link>
-      </nav>
+  {/* Username under avatar */}
+  <div className="text-xs mt-1 text-gray-800 dark:text-white">
+    {isLoggedIn ? userName : "Guest"}
+  </div>
+
+  {/* Avatar dropdown — SHOW FOR BOTH GUEST & LOGGED-IN */}
+  {avatarOpen && (
+    <div className="absolute top-14 right-0 w-40 bg-white dark:bg-zinc-800 shadow-md rounded-md p-2 z-50">
+      {/* Avatar placeholder button (empty for now) */}
+      <button
+        onClick={() => {
+          // placeholder: currently does nothing — kept for future use
+          setAvatarOpen(false);
+        }}
+        className="w-full text-left px-3 py-2 mb-1 text-sm hover:bg-gray-100 cursor-pointer dark:hover:bg-zinc-700 rounded"
+      >
+        Avatar
+      </button>
+
+      {/* Logout button — clears cookies/localStorage and redirects */}
+      <button
+        onClick={() => {
+          setAvatarOpen(false);
+          handleLogout();
+        }}
+        className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-100 cursor-pointer dark:hover:bg-red-900 rounded"
+      >
+        Logout
+      </button>
     </div>
   )}
 </div>
+  {/* --- end avatar --- */}
+              {/* Settings icon + dropdown */}
+              <div className="mr-[2%] relative" ref={settingsRef}>
+                <button
+                  onClick={() => setSettingsOpen((s) => !s)}
+                  aria-haspopup="true"
+                  aria-expanded={settingsOpen}
+                  className="focus:outline-none"
+                  title="Settings"
+                >
+                  <IoSettings className="text-black cursor-pointer mt-1 text-3xl dark:text-white" />
+                </button>
+
+                {settingsOpen && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-zinc-800 text-black dark:text-white rounded shadow-lg z-50">
+                    <nav className="flex flex-col">
+                      <Link
+                        to="/user/register"
+                        className="px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-zinc-700"
+                        onClick={() => setSettingsOpen(false)}
+                      >
+                        Sign Up
+                      </Link>
+                      <Link
+                        to="/user/login"
+                        className="px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-zinc-700"
+                        onClick={() => setSettingsOpen(false)}
+                      >
+                        Login
+                      </Link>
+
+                      {/* Theme toggle moved into settings */}
+                      <div className="px-3 py-2 border-t mt-1">
+                        <div className="text-sm mb-1">Theme</div>
+                        <div onClick={() => {/* keep interactions native to Themebutton */}} className="flex items-center">
+                          <Themebutton />
+                        </div>
+                      </div>
+                    </nav>
+                  </div>
+                )}
+              </div>
 
             </div>
 
-            {/* THEME BUTTON FADE */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="theme-switch flex justify-end m-auto"
-            >
-              <Themebutton />
-            </motion.div>
+            {/* THEME BUTTON FADE removed from here (moved into settings) */}
           </div>
         </motion.div>
 

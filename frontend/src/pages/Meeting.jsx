@@ -267,87 +267,170 @@ export default function Meeting({ roomId: propRoomId }) {
   function stopRecording() { if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") { mediaRecorderRef.current.stop(); setRecording(false); } }
 
   // Transcription: upload chunk to backend
-  async function uploadAudioBlob(blob, isFinal = false) {
-    try {
-      const token = localStorage.getItem("token");
-      const fd = new FormData();
-      if (blob) fd.append("audio", blob, `chunk_${Date.now()}.webm`);
-      fd.append("meetingId", roomId);
-      if (isFinal) fd.append("isFinal", "true");
+// Replace the existing uploadAudioBlob in Meeting.jsx with this implementation.
 
+async function uploadAudioBlob(blob, isFinal = false) {
+  const token = localStorage.getItem("token");
+  const fd = new FormData();
+  if (blob) fd.append("audio", blob, `chunk_${Date.now()}.webm`);
+  fd.append("meetingId", roomId);
+  if (isFinal) fd.append("isFinal", "true");
+
+  const maxRetries = 3;
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    try {
       const res = await fetch(`${API_BASE}/api/transcribe/upload`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,
       });
-      // server will also emit via socket; we don't rely on response, but we swallow possible returned transcript
+
+      // parse JSON safely
       const data = await res.json().catch(() => ({}));
-      if (data?.transcript?.fullText) {
-        const entry = {
-          senderId: data.transcript._id || "server",
-          senderName: "Transcript",
-          text: data.transcript.fullText,
-          ts: Date.now(),
-          isFinal: !!data.transcript.isFinal
-        };
-        setTranscripts((t) => [...t, entry]);
+
+      if (res.ok) {
+        // If server responded with 201 (created) you may get transcript in response
+        if (res.status === 201) {
+          // Return the server transcript payload
+          return data;
+        }
+        // If server returns 202 Accepted, the job will be processed by the server queue.
+        // The server will emit 'transcript-update' over socket when ready.
+        if (res.status === 202) {
+          return { accepted: true, info: data };
+        }
+        // Other 2xx
+        return data;
       }
+
+      // Handle retryable HTTP statuses
+      if (res.status === 429) {
+        // rate-limited — backoff then retry
+        const wait = 700 * Math.pow(2, attempt); // 700ms, 1400ms, 2800ms...
+        console.warn(`uploadAudioBlob: rate limited (429). Backing off ${wait}ms and retrying (attempt ${attempt})`);
+        await new Promise((r) => setTimeout(r, wait));
+        attempt++;
+        continue;
+      }
+
+      // 5xx server errors: retry a few times
+      if (res.status >= 500 && res.status < 600 && attempt < maxRetries) {
+        const wait = 500 * Math.pow(2, attempt);
+        console.warn(`uploadAudioBlob: server error ${res.status}. Backing off ${wait}ms and retrying (attempt ${attempt})`);
+        await new Promise((r) => setTimeout(r, wait));
+        attempt++;
+        continue;
+      }
+
+      // Non-retryable or retries exhausted
+      throw new Error(data?.message || `Upload failed (${res.status})`);
     } catch (err) {
-      console.error("uploadAudioBlob error", err);
+      // network errors or thrown above
+      if (attempt >= maxRetries) {
+        console.error("uploadAudioBlob error (final):", err);
+        throw err;
+      }
+      const wait = 500 * Math.pow(2, attempt);
+      console.warn(`uploadAudioBlob: network/error, backing off ${wait}ms (attempt ${attempt})`, err);
+      await new Promise((r) => setTimeout(r, wait));
+      attempt++;
     }
-  }
+  } // end while
+}
+
 
   // Start transcription (audio-only MediaRecorder separate from video recorder)
-  async function startTranscription() {
-    if (isTranscribing) return;
-    try {
-      // request audio-only stream to avoid disturbing video tracks
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      transcribeStreamRef.current = stream;
+// Start transcription (audio-only MediaRecorder separate from video recorder)
+async function startTranscription() {
+  if (isTranscribing) return;
 
-      // create MediaRecorder for audio
-      const options = { mimeType: "audio/webm;codecs=opus" };
-      const mr = new MediaRecorder(stream, options);
-      transcribeRecorderRef.current = mr;
-      transcribeChunksRef.current = [];
-
-      mr.ondataavailable = async (e) => {
-        if (!e.data || e.data.size === 0) return;
-        // accumulate chunk locally (optional)
-        transcribeChunksRef.current.push(e.data);
-        // send each chunk for near-live transcription
-        await uploadAudioBlob(e.data, false);
-      };
-
-      mr.onstop = async () => {
-        // when stopping, send final assembled blob if there are leftover chunks
-        try {
-          if (transcribeChunksRef.current.length) {
-            const finalBlob = new Blob(transcribeChunksRef.current, { type: "audio/webm" });
-            await uploadAudioBlob(finalBlob, true);
-          } else {
-            // still notify server stream ended (no audio in final)
-            await uploadAudioBlob(null, true);
-          }
-        } catch (e) {
-          console.error("final upload error", e);
-        } finally {
-          // stop tracks
-          try { transcribeStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch (e) {}
-          transcribeStreamRef.current = null;
-          transcribeChunksRef.current = [];
-          transcribeRecorderRef.current = null;
+  try {
+    // 1) Prefer reusing existing local audio tracks (if available)
+    let stream = null;
+    const local = localStreamRef.current;
+    if (local && local.getAudioTracks && local.getAudioTracks().length > 0) {
+      // create a new MediaStream with just the audio tracks so we don't disturb video
+      const audioTracks = local.getAudioTracks().map((t) => t.clone ? t.clone() : t);
+      stream = new MediaStream(audioTracks);
+    } else {
+      // 2) Otherwise request audio-only permission (will not request camera)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (err) {
+        console.error("startTranscription: getUserMedia audio failed", err);
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          alert("Microphone access denied. Please allow microphone access to use transcription.");
+        } else if (err.name === "NotFoundError") {
+          alert("No microphone found. Transcription requires an audio input device.");
+        } else {
+          alert("Unable to get microphone: " + (err.message || err));
         }
-      };
-
-      // start with a timeslice so ondataavailable fires periodically (3s)
-      mr.start(3000);
-      setIsTranscribing(true);
-    } catch (err) {
-      console.error("startTranscription error", err);
-      alert("Unable to start transcription: " + (err.message || err));
+        return;
+      }
     }
+
+    // Save the stream ref so stopTranscription can stop it if we created it
+    transcribeStreamRef.current = stream;
+
+    // 3) Choose best available mimeType (fallback gracefully)
+    let options = {};
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+      options = { mimeType: "audio/webm;codecs=opus" };
+    } else if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+      options = { mimeType: "audio/ogg;codecs=opus" };
+    } else {
+      options = {}; // let browser pick default
+    }
+
+    const mr = new MediaRecorder(stream, options);
+    transcribeRecorderRef.current = mr;
+    transcribeChunksRef.current = [];
+
+    mr.ondataavailable = async (e) => {
+      if (!e.data || e.data.size === 0) return;
+      // store chunk
+      transcribeChunksRef.current.push(e.data);
+      // send chunk for near-live transcription
+      await uploadAudioBlob(e.data, false);
+    };
+
+    mr.onstop = async () => {
+      try {
+        if (transcribeChunksRef.current.length) {
+          const finalBlob = new Blob(transcribeChunksRef.current, { type: transcribeChunksRef.current[0]?.type || "audio/webm" });
+          await uploadAudioBlob(finalBlob, true);
+        } else {
+          // notify server no-data finalization
+          await uploadAudioBlob(null, true);
+        }
+      } catch (e) {
+        console.error("final upload error", e);
+      } finally {
+        // If we created a stream specifically for transcription (i.e. not the shared localStream),
+        // stop tracks. If we used cloned tracks from localStream, stopping cloned tracks is safe.
+        try {
+          transcribeStreamRef.current?.getTracks().forEach((t) => {
+            try { t.stop(); } catch (ee) {}
+          });
+        } catch (e) {}
+        transcribeStreamRef.current = null;
+        transcribeChunksRef.current = [];
+        transcribeRecorderRef.current = null;
+      }
+    };
+
+    // start recorder with timeslice so ondataavailable fires periodically
+    mr.start(3000);
+    setIsTranscribing(true);
+  } catch (err) {
+    console.error("startTranscription error:", err);
+    alert("Unable to start transcription: " + (err.message || err));
+    return;
   }
+}
+
 
   async function stopTranscription() {
     if (!isTranscribing) return;

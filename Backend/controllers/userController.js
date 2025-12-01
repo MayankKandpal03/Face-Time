@@ -6,39 +6,64 @@ import { asyncWrap } from "../utils/errorHandler.js"
 
 // Logic
 // Register
-export const registerUser = asyncWrap(async (req, res) => { 
-  const { name, email, password } = req.body
-  
-  
-  const existing = await User.findOne({ email })
-  if (existing) return res.status(400).json({ message: "Email is already registered" })
+const sanitizeUser = (doc) => {
+  if (!doc) return null;
+  const obj = doc.toObject ? doc.toObject() : doc;
+  delete obj.password;
+  return obj;
+};
 
-  const hashed = await bcrypt.hash(password, 10)
+export const registerUser = async (req, res, next) => {
+  try {
+    const { name, email, password } = req.body || {};
+    const emailNormalized = String(email || "").toLowerCase().trim();
 
-  const user = await User.create({ name, email, password: hashed })
-  const jwtSecret = process.env.JWT_SECRET || "dev_fallback_secret";
+    if (!name || !emailNormalized || !password) {
+      return res.status(400).json({ message: "Name, email and password are required" });
+    }
 
-  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" })
+    const existing = await User.findOne({ email: emailNormalized });
+    if (existing) {
+      return res.status(409).json({ message: "Email already registered" });
+    }
 
-  res.status(201).json({ message: "User registered", user, token })
-})
+    const hashed = await bcrypt.hash(password, 10);
+    const created = await User.create({ name: name.trim(), email: emailNormalized, password: hashed });
+
+    // sign token
+    const token = jwt.sign({ id: created._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+    res.status(201).json({ message: "User registered", user: sanitizeUser(created), token });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // Login
 export const loginUser = async (req, res, next) => {
   try {
-    const email = (req.body.email || "").trim().toLowerCase();
-    const password = req.body.password;
+    const { email, password } = req.body || {};
+    const emailNormalized = String(email || "").toLowerCase().trim();
 
-    if (!email || !password) return res.status(400).json({ message: "Email and Password Required" });
+    if (!emailNormalized || !password) {
+      return res.status(400).json({ message: "Email and password required" });
+    }
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: "User not found" });
+    // IMPORTANT: select the password explicitly if your schema has select:false
+    const user = await User.findOne({ email: emailNormalized }).select("+password");
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
+    // user.password is the hashed password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
-    const token = signToken(user._id);
-    return res.json({ message: "Logged in", token, user: { id: user._id, name: user.name, email: user.email } });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    const sanitized = sanitizeUser(user);
+    res.status(200).json({ message: "Login successful", user: sanitized, token });
   } catch (err) {
     next(err);
   }

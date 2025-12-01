@@ -211,9 +211,9 @@ navigate("/");
           {/* Route Toggle — navigate to the other route (no local toggling) */}
           <motion.div className="text-center mt-3 text-blue-600 cursor-pointer">
             {isRegisterMode ? (
-              <span onClick={() => navigate("/login")}>Already have an account? Login</span>
+              <span onClick={() => navigate("/user/login")}>Already have an account? Login</span>
             ) : (
-              <span onClick={() => navigate("/register")}>Don't have an account? Register</span>
+              <span onClick={() => navigate("/user/register")}>Don't have an account? Register</span>
             )}
           </motion.div>
            
